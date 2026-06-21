@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>大学生记账理财反诈助手</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #f0f4f9;
+            --card-bg: #ffffff;
+            --user-msg: #dbeafe;
+            --ai-msg: #f3f4f6;
+            --context-bg: #fffbeb;
+            --warn-color: #d97706;
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: "Microsoft YaHei", sans-serif;
+            background: var(--bg);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .chat-box {
+            width: 100%;
+            max-width: 850px;
+            height: 92vh;
+            background: var(--card-bg);
+            border-radius: 14px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .header {
+            background: var(--primary);
+            color: white;
+            padding: 18px;
+            text-align: center;
+            font-size: 1.3rem;
+            font-weight: bold;
+        }
+        .chat-content {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .msg-wrap {
+            max-width: 78%;
+            display: flex;
+            flex-direction: column;
+        }
+        .msg-wrap.user {
+            align-self: flex-end;
+            align-items: flex-end;
+        }
+        .msg-wrap.ai {
+            align-self: flex-start;
+            align-items: flex-start;
+        }
+        .msg {
+            padding: 12px 16px;
+            border-radius: 10px;
+            line-height: 1.6;
+            word-break: break-all;
+        }
+        .user .msg {
+            background: var(--user-msg);
+            color: #1a365d;
+            border-bottom-right-radius: 2px;
+        }
+        .ai .msg {
+            background: var(--ai-msg);
+            color: #1f2937;
+            border-bottom-left-radius: 2px;
+        }
+        /* 知识库参考上下文面板 */
+        .source-box {
+            margin-top: 8px;
+            width: 100%;
+            background: var(--context-bg);
+            border-left: 4px solid #f59e0b;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 0.86rem;
+            color: var(--warn-color);
+        }
+        .source-box summary {
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .loading-tip {
+            font-style: italic;
+            color: #6b7280;
+        }
+        .input-area {
+            display: flex;
+            gap: 12px;
+            padding: 16px;
+            border-top: 1px solid #e5e7eb;
+        }
+        #input-text {
+            flex: 1;
+            padding: 13px 16px;
+            border: 1px solid #d1d5db;
+            border-radius: 9px;
+            font-size: 1rem;
+            outline: none;
+        }
+        #input-text:focus {
+            border-color: var(--primary);
+        }
+        #send-btn {
+            padding: 0 26px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 9px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        #send-btn:hover {
+            background: #1d4ed8;
+        }
+        #send-btn:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+<div class="chat-box">
+    <div class="header">💰大学生记账&反诈理财助手</div>
+    <div class="chat-content" id="chatHistory">
+        <div class="msg-wrap ai">
+            <div class="msg">你好！我可以帮你两件事：<br>1. 记账：输入消费自动提取金额、分类<br>2. 反诈理财问答：查询校园诈骗、理财知识</div>
+        </div>
+    </div>
+    <div class="input-area">
+        <input type="text" id="input-text" placeholder="示例：今天吃饭花35元 / 校园刷单是骗局吗" autocomplete="off">
+        <button id="send-btn">发送</button>
+    </div>
+</div>
+
+<script>
+// 后端接口地址
+const API_URL = "http://127.0.0.1:8000/api/v1/chat";
+const chatHistory = document.getElementById("chatHistory");
+const inputText = document.getElementById("input-text");
+const sendBtn = document.getElementById("send-btn");
+
+// 回车发送
+inputText.addEventListener("keydown", e => {
+    if (e.key === "Enter") sendMessage();
+})
+sendBtn.addEventListener("click", sendMessage);
+
+async function sendMessage() {
+    const text = inputText.value.trim();
+    if (!text) return;
+
+    // 展示用户消息
+    appendMsg("user", text);
+    inputText.value = "";
+    // 锁定输入
+    toggleInput(false);
+    const loadId = showLoading();
+
+    try {
+        const res = await fetch(API_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ input: text })
+        })
+        const data = await res.json();
+        removeNode(loadId);
+        if (!res.ok) throw new Error(data.detail || "请求异常");
+        // 展示AI回答+知识库原文
+        appendMsg("ai", data.answer, data.context);
+    } catch (err) {
+        removeNode(loadId);
+        appendMsg("ai", `⚠️ 请求出错：${err.message}`);
+    } finally {
+        toggleInput(true);
+        inputText.focus();
+    }
+}
+
+// 添加聊天消息
+function appendMsg(type, text, context = null) {
+    const wrap = document.createElement("div");
+    wrap.className = `msg-wrap ${type}`;
+    let html = `<div class="msg">${escapeHtml(text)}</div>`;
+    if (context) {
+        html += `
+            <details class="source-box">
+                <summary>📚 知识库参考原文</summary>
+                <div style="margin-top:6px;white-space:pre-wrap;">${escapeHtml(context)}</div>
+            </details>
+        `
+    }
+    wrap.innerHTML = html;
+    chatHistory.appendChild(wrap);
+    scrollBottom();
+}
+
+// 加载提示
+function showLoading() {
+    const id = "load-" + Date.now();
+    const wrap = document.createElement("div");
+    wrap.id = id;
+    wrap.className = "msg-wrap ai";
+    wrap.innerHTML = `<div class="msg loading-tip">AI正在检索知识库、处理中...</div>`;
+    chatHistory.appendChild(wrap);
+    scrollBottom();
+    return id;
+}
+
+// 删除元素
+function removeNode(id) {
+    const dom = document.getElementById(id);
+    if (dom) dom.remove();
+}
+
+// 锁定/解锁输入
+function toggleInput(enable) {
+    inputText.disabled = !enable;
+    sendBtn.disabled = !enable;
+}
+
+// 滚动到底部
+function scrollBottom() {
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+}
+
+// XSS转义
+function escapeHtml(str) {
+    return str.replace(/[&<>'"]/g, tag => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;',
+        '"': '&quot;'
+    }[tag]))
+}
+</script>
+</body>
+</html>
